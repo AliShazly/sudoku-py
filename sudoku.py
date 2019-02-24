@@ -1,22 +1,5 @@
-puzzle_easy = [[5,3,0,0,7,0,0,0,0],
-          [6,0,0,1,9,5,0,0,0],
-          [0,9,8,0,0,0,0,6,0],
-          [8,0,0,0,6,0,0,0,3],
-          [4,0,0,8,0,3,0,0,1],
-          [7,0,0,0,2,0,0,0,6],
-          [0,6,0,0,0,0,2,8,0],
-          [0,0,0,4,1,9,0,0,5],
-          [0,0,0,0,8,0,0,7,9]]
-
-puzzle_hard = [[0,0,0,5,0,1,7,0,2],
-            [0,0,0,6,0,0,0,3,0],
-            [1,0,0,0,8,0,6,0,4],
-            [5,0,7,0,0,3,0,6,0],
-            [8,0,0,0,0,0,0,0,3],
-            [0,2,0,9,0,0,1,0,8],
-            [9,0,2,0,6,0,0,0,7],
-            [0,8,0,0,0,4,0,0,0],
-            [4,0,3,2,0,7,0,0,0]]
+import time
+import json
 
 def get_row(puzzle, row_num):
     return puzzle[row_num]
@@ -34,24 +17,52 @@ def get_square(puzzle, row_num, col_num):
     return [puzzle[i[0]][i[1]] for i in coords]
 
 def get_possibilities(puzzle, row_num, col_num):
-    possible = set(range(1,10))
+    possible = set(range(1, 10))
     row = get_row(puzzle, row_num)
     col = get_column(puzzle, col_num)
     square = get_square(puzzle, row_num, col_num)
     not_possible = set(row + col + square)
     return possible - not_possible
 
-def depth_first_solve(puzzle):
-    unsolved = False
-    for row_num, row_values in enumerate(puzzle):
-        for col_num, value in enumerate(row_values):
+def solve(puzzle):
+    solved = True
+    for row, row_values in enumerate(puzzle):
+        for col, value in enumerate(row_values):
             if value == 0:
-                unsolved = True
-                possibilities = list(get_possibilities(puzzle, row_num, col_num))
-                if len(possibilities) == 1:
-                    puzzle[row_num][col_num] = possibilities[0]
-    if unsolved:
-        return depth_first_solve(puzzle)
-    return puzzle
+                solved = False
+                break
+        else:
+            continue
+        break
+    if solved:
+        return puzzle
+    for i in range(1, 10):
+        if i in get_possibilities(puzzle, row, col):
+            puzzle[row][col] = i
+            if solve(puzzle):
+                return puzzle
+            else:
+                puzzle[row][col] = 0
+    return False
 
-print(depth_first_solve(puzzle_easy))
+def test():
+    with open('puzzles.json') as f:
+        puzzles = json.load(f)
+    for i in puzzles:
+        start = time.time()
+        solved = solve(i)
+        end = time.time()
+        for j in range(9):
+            if sum(get_row(solved, j)) != 45:
+                return False
+            if sum(get_column(solved, j)) != 45:
+                return False
+            if sum(get_square(solved, j, j)) != 45:
+                return False
+        print(f'Solved puzzle in {round(end - start, 2)} seconds')
+        for i in solved:
+            print(i)
+    return True
+
+
+test()
