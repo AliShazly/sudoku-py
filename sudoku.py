@@ -46,7 +46,7 @@ def solve(puzzle):
     return False
 
 def test():
-    with open('puzzles.json') as f:
+    with open('assets\\puzzles.json') as f:
         puzzles = json.load(f)
     for i in puzzles:
         start = time.time()

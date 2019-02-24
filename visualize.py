@@ -2,7 +2,7 @@ from PIL import Image, ImageDraw, ImageFont
 import json
 from sudoku import get_row, get_column, get_possibilities
 
-with open('puzzles.json') as f:
+with open('assets\\puzzles.json') as f:
     puzzles = json.load(f)
 
 def puzzle_to_str(puzzle):
@@ -26,14 +26,14 @@ def array_to_image(array):
     coord_x = 12
     coord_y = 0
     step = 55.4
-    image = Image.open('board.png')
+    image = Image.open('assets\\board.png')
     d = ImageDraw.Draw(image)
     for row, row_values in enumerate(array):
         for col, value in enumerate(row_values):
             fill = (0)
             if (row, col) in base_puzzle_coords:
                 fill = (0,127,255)
-            fnt = ImageFont.truetype('FreeMono.ttf', 61)
+            fnt = ImageFont.truetype('assets\\FreeMono.ttf', 61)
             d.text((coord_x, coord_y), value, fill=fill, font= fnt)
             coord_x += step
         coord_x = 12
@@ -74,7 +74,7 @@ solved = solve(puzzles[0])
 for i in range(40):
     array_to_image(solved)
 
-frame_list[0].save('output.gif',
+frame_list[0].save('assets\\output.gif',
                save_all=True,
                append_images=frame_list[1::20],
                duration=16.67,
