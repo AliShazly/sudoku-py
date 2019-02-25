@@ -1,6 +1,7 @@
 from PIL import Image, ImageDraw, ImageFont
 import json
 from sudoku import get_row, get_column, get_possibilities
+import time
 
 with open('assets\\puzzles.json') as f:
     puzzles = json.load(f)
@@ -13,10 +14,21 @@ def puzzle_to_str(puzzle):
 loop_num = 0
 base_puzzle_coords = []
 frame_list = []
-def array_to_image(array):
+def array_to_image(array, output):
     global loop_num
     global base_puzzle_coords
     global frame_list
+        
+    if not output:
+        loop_num += 1
+        # print(f'Processed {loop_num} frames')
+        return
+        
+    if not loop_num % frame_num == 0:
+        # print(f'exited: {loop_num}')
+        loop_num+=1
+        return
+
     if loop_num == 0:
         for row, row_values in enumerate(array):
             for col, value in enumerate(row_values):
@@ -41,11 +53,10 @@ def array_to_image(array):
     # image.save(f'frames\\{loop_num}.png')
     frame_list.append(image)
     loop_num+=1
-    if loop_num % 100 == 0:
-        print(f'Processed {loop_num} frames')
+    print(f'Processed {loop_num} frames')
     return
 
-def solve(puzzle):
+def solve(puzzle, output):
     solved = True
     for row, row_values in enumerate(puzzle):
         for col, value in enumerate(row_values):
@@ -60,23 +71,27 @@ def solve(puzzle):
     for i in range(1, 10):
         if i in get_possibilities(puzzle, row, col):
             puzzle[row][col] = i
-            array_to_image(puzzle)
-            if solve(puzzle):
+            array_to_image(puzzle, output)
+            if solve(puzzle, output):
                 return puzzle
             else:
                 puzzle[row][col] = 0
-                array_to_image(puzzle)
+                array_to_image(puzzle, output)
     return False
 
 
-solved = solve(puzzles[0])
-# Appending solved frames to the end of the animation
-for i in range(40):
-    array_to_image(solved)
+solve(puzzles[1], False)
+frame_num = loop_num//1800
+solved = solve(puzzles[1], True)
 
+# Appending solved frames to the end of the animation
+for i in range(frame_num*2):
+    array_to_image(solved, True)
+
+print('Saving output...')
 frame_list[0].save('assets\\output.gif',
                save_all=True,
-               append_images=frame_list[1::20],
+               append_images=frame_list[1:],
                duration=16.67,
                loop=0,
                optimize=True)
