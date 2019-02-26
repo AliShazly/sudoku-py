@@ -1,32 +1,33 @@
 from PIL import Image, ImageDraw, ImageFont
 import json
-from sudoku import get_row, get_column, get_possibilities
-import time
+from sudoku import get_possibilities
 
 with open('assets\\puzzles.json') as f:
     puzzles = json.load(f)
+
 
 def puzzle_to_str(puzzle):
     str_puzzle = [[str(j) for j in i] for i in puzzle]
     str_puzzle_spaces = [[' ' if j == '0' else j for j in i] for i in str_puzzle]
     return str_puzzle_spaces
 
+
 loop_num = 0
 base_puzzle_coords = []
 frame_list = []
+
+
 def array_to_image(array, output):
     global loop_num
     global base_puzzle_coords
     global frame_list
-        
+
     if not output:
         loop_num += 1
-        # print(f'Processed {loop_num} frames')
         return
-        
-    if not loop_num % frame_num == 0:
-        # print(f'exited: {loop_num}')
-        loop_num+=1
+
+    if not loop_num % 42 == 0:
+        loop_num += 1
         return
 
     if loop_num == 0:
@@ -42,19 +43,19 @@ def array_to_image(array, output):
     d = ImageDraw.Draw(image)
     for row, row_values in enumerate(array):
         for col, value in enumerate(row_values):
-            fill = (0)
+            fill = 0
             if (row, col) in base_puzzle_coords:
-                fill = (0,127,255)
+                fill = (0, 127, 255)
             fnt = ImageFont.truetype('assets\\FreeMono.ttf', 61)
-            d.text((coord_x, coord_y), value, fill=fill, font= fnt)
+            d.text((coord_x, coord_y), value, fill=fill, font=fnt)
             coord_x += step
         coord_x = 12
         coord_y += step
-    # image.save(f'frames\\{loop_num}.png')
     frame_list.append(image)
-    loop_num+=1
-    print(f'Processed {loop_num} frames')
+    loop_num += 1
+    print(f'Visualizing {round((loop_num / max_iterations) * 100, 2)}% finished...', end='\r', flush=True)
     return
+
 
 def solve(puzzle, output):
     solved = True
@@ -80,18 +81,25 @@ def solve(puzzle, output):
     return False
 
 
-solve(puzzles[1], False)
-frame_num = loop_num//1800
-solved = solve(puzzles[1], True)
+puzzle_num = int(input('What puzzle do you want to visualize?: '))
+print('Solving...', end='\r', flush=True)
+solve(puzzles[puzzle_num], False)
+frame_num = loop_num // 1800
+max_iterations = loop_num
+loop_num = 0
+with open('assets\\puzzles.json') as f:
+    puzzles = json.load(f)
+
+solved = solve(puzzles[puzzle_num], True)
 
 # Appending solved frames to the end of the animation
-for i in range(frame_num*2):
+for i in range(frame_num * 5):
     array_to_image(solved, True)
 
-print('Saving output...')
+print('\nSaving output...')
 frame_list[0].save('assets\\output.gif',
-               save_all=True,
-               append_images=frame_list[1:],
-               duration=16.67,
-               loop=0,
-               optimize=True)
+                   save_all=True,
+                   append_images=frame_list[1:],
+                   duration=16.67,
+                   loop=0,
+                   optimize=True)
