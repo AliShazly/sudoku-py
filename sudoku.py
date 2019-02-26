@@ -1,11 +1,14 @@
 import time
 import json
 
+
 def get_row(puzzle, row_num):
     return puzzle[row_num]
 
+
 def get_column(puzzle, col_num):
     return [puzzle[i][col_num] for i, _ in enumerate(puzzle[0])]
+
 
 def get_square(puzzle, row_num, col_num):
     square_x = row_num // 3
@@ -16,6 +19,7 @@ def get_square(puzzle, row_num, col_num):
             coords.append((square_x * 3 + j, square_y * 3 + i))
     return [puzzle[i[0]][i[1]] for i in coords]
 
+
 def get_possibilities(puzzle, row_num, col_num):
     possible = set(range(1, 10))
     row = get_row(puzzle, row_num)
@@ -23,6 +27,7 @@ def get_possibilities(puzzle, row_num, col_num):
     square = get_square(puzzle, row_num, col_num)
     not_possible = set(row + col + square)
     return possible - not_possible
+
 
 def solve(puzzle):
     solved = True
@@ -45,6 +50,7 @@ def solve(puzzle):
                 puzzle[row][col] = 0
     return False
 
+
 def test():
     with open('assets\\puzzles.json') as f:
         puzzles = json.load(f)
@@ -63,6 +69,7 @@ def test():
         for i in solved:
             print(i)
     return True
+
 
 if __name__ == '__main__':
     test()
