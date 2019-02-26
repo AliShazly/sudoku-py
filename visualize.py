@@ -1,6 +1,8 @@
 from PIL import Image, ImageDraw, ImageFont
 import json
 from sudoku import get_possibilities
+import cv2
+import numpy as np
 
 with open('assets\\puzzles.json') as f:
     puzzles = json.load(f)
@@ -12,29 +14,32 @@ def puzzle_to_str(puzzle):
     return str_puzzle_spaces
 
 
-loop_num = 0
+counter = 0  # Counts each iteration of the puzzle
 base_puzzle_coords = []
 frame_list = []
+fourcc = cv2.VideoWriter_fourcc(*'H264')
+out = cv2.VideoWriter('assets\\output.mp4', fourcc, 30.0, (504, 503))
 
 
 def array_to_image(array, output):
-    global loop_num
+    global counter
     global base_puzzle_coords
     global frame_list
 
     if not output:
-        loop_num += 1
+        counter += 1
         return
-
-    if not loop_num % 42 == 0:
-        loop_num += 1
+    # Only grabbing every nth frame, depending on how many iterations the solve took. Speeds up execution greatly
+    if not counter % frame_num == 0:
+        counter += 1
         return
-
-    if loop_num == 0:
+    # Grabbing the base numbers to draw in blue
+    if counter == 0:
         for row, row_values in enumerate(array):
             for col, value in enumerate(row_values):
                 if value != 0:
                     base_puzzle_coords.append((row, col))
+
     array = puzzle_to_str(array)
     coord_x = 12
     coord_y = 0
@@ -51,9 +56,11 @@ def array_to_image(array, output):
             coord_x += step
         coord_x = 12
         coord_y += step
+    # Converting from PIL to cv2 for output
+    image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
     frame_list.append(image)
-    loop_num += 1
-    print(f'Visualizing {round((loop_num / max_iterations) * 100, 2)}% finished...', end='\r', flush=True)
+    counter += 1
+    print(f'Visualizing {round((counter / max_iterations) * 100, 2)}% finished...', end='\r', flush=True)
     return
 
 
@@ -83,23 +90,24 @@ def solve(puzzle, output):
 
 puzzle_num = int(input('What puzzle do you want to visualize?: '))
 print('Solving...', end='\r', flush=True)
-solve(puzzles[puzzle_num], False)
-frame_num = loop_num // 1800
-max_iterations = loop_num
-loop_num = 0
-with open('assets\\puzzles.json') as f:
+
+solve(puzzles[puzzle_num], False)  # Solving puzzle to get amount of iterations first
+
+frame_num = counter // 900  # counter / amount of total frames in the end video
+# Only used for progress bar
+max_iterations = counter
+counter = 0
+
+with open('assets\\puzzles.json') as f:  # Reloading the json because the puzzles var changed for some reason?
     puzzles = json.load(f)
 
-solved = solve(puzzles[puzzle_num], True)
+solved = solve(puzzles[puzzle_num], True)  # Solving again to append frames to output
 
 # Appending solved frames to the end of the animation
-for i in range(frame_num * 5):
+for i in range(frame_num * 80):
     array_to_image(solved, True)
 
 print('\nSaving output...')
-frame_list[0].save('assets\\output.gif',
-                   save_all=True,
-                   append_images=frame_list[1:],
-                   duration=16.67,
-                   loop=0,
-                   optimize=True)
+for i in frame_list:
+    out.write(i)
+out.release()
