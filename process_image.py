@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-img_rgb = cv2.imread('assets/img.jpg', cv2.IMREAD_COLOR)
+img_rgb = cv2.imread('assets/img2.jpg', cv2.IMREAD_COLOR)
 
 
 def process(img):
@@ -34,12 +34,26 @@ def get_corners(img):
     return corners
 
 
+def transform(pts, img):
+    pts = np.float32(pts)
+    top_l, top_r, bot_l, bot_r = pts[0], pts[1], pts[2], pts[3]
+
+    def pythagoras(pt1, pt2):
+        return np.sqrt((pt2[0] - pt1[0]) ** 2 + (pt2[1] - pt1[1]) ** 2)
+
+    width = int(max(pythagoras(bot_r, bot_l), pythagoras(top_r, top_l)))
+    height = int(max(pythagoras(top_r, bot_r), pythagoras(top_l, bot_l)))
+
+    dim = np.array(([0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]), dtype='float32')
+    matrix = cv2.getPerspectiveTransform(pts, dim)
+    warped = cv2.warpPerspective(img, matrix, (width, height))
+    return warped
+
+
 processed = process(img_rgb)
 corners = get_corners(processed)
-
-for point in corners:
-    img = cv2.circle(img_rgb, tuple(int(x) for x in point), 5, (0, 0, 255), -1)
-
-cv2.imshow('w', img)
+warped = transform(corners, img_rgb)
+cv2.imshow('x', warped)
+cv2.imshow('y', img_rgb)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
