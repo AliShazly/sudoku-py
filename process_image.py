@@ -4,7 +4,7 @@ import numpy as np
 
 def process(img):
     kernel = np.ones((2, 2), np.uint8)
-    greyscale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    greyscale = img if len(img.shape) == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(greyscale, (7, 7), 0)
     thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                    cv2.THRESH_BINARY, 11, 2)
@@ -41,7 +41,7 @@ def transform(pts, img):
 
     width = int(max(pythagoras(bot_r, bot_l), pythagoras(top_r, top_l)))
     height = int(max(pythagoras(top_r, bot_r), pythagoras(top_l, bot_l)))
-    square = max(width, height)
+    square = max(width, height) // 9 * 9  # Making the image dimensions divisible by 9
 
     dim = np.array(([0, 0], [square - 1, 0], [square - 1, square - 1], [0, square - 1]), dtype='float32')
     matrix = cv2.getPerspectiveTransform(pts, dim)
@@ -49,10 +49,21 @@ def transform(pts, img):
     return warped
 
 
-img_rgb = cv2.imread('assets/img2.jpg', cv2.IMREAD_COLOR)
-processed = process(img_rgb)
+def subdivide(img, divisions):
+    height, _ = img.shape
+    cluster = height // divisions
+    subdivided = img.reshape(height // cluster, cluster, -1, cluster).swapaxes(1, 2).reshape(-1, cluster, cluster)
+    return [i for i in subdivided]
+
+
+img = cv2.imread('assets/img.jpg', cv2.IMREAD_COLOR)
+processed = process(img)
 corners = get_corners(processed)
-warped = transform(corners, img_rgb)
+warped = transform(corners, processed)
+subdivided = subdivide(warped, 9)
+
+for i, j in enumerate(subdivided):
+    cv2.imshow(f'{i}.png', j)
 
 cv2.imshow('x', warped)
 cv2.waitKey(0)
