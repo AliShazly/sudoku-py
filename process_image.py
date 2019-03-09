@@ -1,16 +1,18 @@
 import cv2
+import keras
 import numpy as np
+from keras.models import load_model
 
 
 def process(img):
-    kernel = np.ones((2, 2), np.uint8)
+    kernel = np.ones((1, 1), np.uint8)
     greyscale = img if len(img.shape) == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    denoise = cv2.fastNlMeansDenoising(greyscale, None, 10, 7, 21)
+    denoise = cv2.GaussianBlur(greyscale, (9, 9), 0)
     thresh = cv2.adaptiveThreshold(denoise, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                    cv2.THRESH_BINARY, 11, 2)
     inverted = cv2.bitwise_not(thresh, 0)
     morph = cv2.morphologyEx(inverted, cv2.MORPH_OPEN, kernel)
-    dilated = cv2.dilate(morph, kernel, iterations=1)
+    dilated = cv2.dilate(morph, kernel, iterations=2)
     return dilated
 
 
@@ -56,15 +58,29 @@ def subdivide(img, divisions=9):
     return [i for i in subdivided]
 
 
-img = cv2.imread('assets/img2.jpg', cv2.IMREAD_GRAYSCALE)
+def ocr(img_array, img_rows, img_cols):
+    for i in img_array:
+        img = cv2.resize(i, (img_rows, img_cols), cv2.INTER_LANCZOS4)
+        img = np.array([img])
+        img = img.reshape(img.shape[0], img_rows, img_cols, 1)
+        img = img.astype('float32')
+        img /= 255
+        classes = model.predict_classes(img)
+        print(classes[0])
+        cv2.imshow('img', i)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+
+model = load_model('ocr/chars74k_V02.hdf5')
+model.compile(loss=keras.losses.categorical_crossentropy,
+              optimizer=keras.optimizers.Adadelta(),
+              metrics=['accuracy'])
+img_rows, img_cols = 28, 28
+
+img = cv2.imread('assets/img5.jpg', cv2.IMREAD_GRAYSCALE)
 processed = process(img)
 corners = get_corners(processed)
 warped = transform(corners, processed)
 subdivided = subdivide(warped)
-
-for i, j in enumerate(subdivided):
-    cv2.imwrite(f'assets/thresh_blocks/{i}.png', j)
-
-cv2.imshow('x', warped)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+ocr(subdivided, img_rows, img_cols)
