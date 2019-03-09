@@ -5,12 +5,12 @@ import numpy as np
 def process(img):
     kernel = np.ones((2, 2), np.uint8)
     greyscale = img if len(img.shape) == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(greyscale, (7, 7), 0)
-    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+    denoise = cv2.fastNlMeansDenoising(greyscale, None, 10, 7, 21)
+    thresh = cv2.adaptiveThreshold(denoise, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                    cv2.THRESH_BINARY, 11, 2)
     inverted = cv2.bitwise_not(thresh, 0)
-    denoise = cv2.morphologyEx(inverted, cv2.MORPH_OPEN, kernel)
-    dilated = cv2.dilate(denoise, kernel, iterations=1)
+    morph = cv2.morphologyEx(inverted, cv2.MORPH_OPEN, kernel)
+    dilated = cv2.dilate(morph, kernel, iterations=1)
     return dilated
 
 
@@ -49,21 +49,21 @@ def transform(pts, img):
     return warped
 
 
-def subdivide(img, divisions):
+def subdivide(img, divisions=9):
     height, _ = img.shape
     cluster = height // divisions
     subdivided = img.reshape(height // cluster, cluster, -1, cluster).swapaxes(1, 2).reshape(-1, cluster, cluster)
     return [i for i in subdivided]
 
 
-img = cv2.imread('assets/img.jpg', cv2.IMREAD_COLOR)
+img = cv2.imread('assets/img2.jpg', cv2.IMREAD_GRAYSCALE)
 processed = process(img)
 corners = get_corners(processed)
 warped = transform(corners, processed)
-subdivided = subdivide(warped, 9)
+subdivided = subdivide(warped)
 
 for i, j in enumerate(subdivided):
-    cv2.imshow(f'{i}.png', j)
+    cv2.imwrite(f'assets/thresh_blocks/{i}.png', j)
 
 cv2.imshow('x', warped)
 cv2.waitKey(0)
