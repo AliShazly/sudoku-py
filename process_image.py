@@ -4,15 +4,23 @@ import numpy as np
 from keras.models import load_model
 
 
+def show(*args):
+    for i, j in enumerate(args):
+        cv2.imshow(str(i), j)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
 def process(img):
-    kernel = np.ones((1, 1), np.uint8)
+    # kernel = np.ones((2, 2), np.uint8)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
     greyscale = img if len(img.shape) == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     denoise = cv2.GaussianBlur(greyscale, (9, 9), 0)
     thresh = cv2.adaptiveThreshold(denoise, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                    cv2.THRESH_BINARY, 11, 2)
     inverted = cv2.bitwise_not(thresh, 0)
     morph = cv2.morphologyEx(inverted, cv2.MORPH_OPEN, kernel)
-    dilated = cv2.dilate(morph, kernel, iterations=2)
+    dilated = cv2.dilate(morph, kernel, iterations=1)
     return dilated
 
 
@@ -51,6 +59,46 @@ def transform(pts, img):
     return warped
 
 
+def extract_lines(img):
+    length = 12
+    horizontal = np.copy(img)
+    cols = horizontal.shape[1]
+    horizontal_size = cols // length
+    horizontal_structure = cv2.getStructuringElement(cv2.MORPH_RECT, (horizontal_size, 1))
+    horizontal = cv2.erode(horizontal, horizontal_structure)
+    horizontal = cv2.dilate(horizontal, horizontal_structure)
+    vertical = np.copy(img)
+    rows = vertical.shape[0]
+    vertical_size = rows // length
+    vertical_structure = cv2.getStructuringElement(cv2.MORPH_RECT, (1, vertical_size))
+    vertical = cv2.erode(vertical, vertical_structure)
+    vertical = cv2.dilate(vertical, vertical_structure)
+    grid = cv2.add(horizontal, vertical)
+    grid = cv2.adaptiveThreshold(grid, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 235, 2)
+    grid = cv2.dilate(grid, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)), iterations=2)
+    pts = cv2.HoughLines(grid, .3, np.pi / 90, 200)
+
+    def draw_lines(im, pts):
+        im = np.copy(im)
+        # im = cv2.cvtColor(im, cv2.COLOR_GRAY2RGB)
+        pts = np.squeeze(pts)
+        for r, theta in pts:
+            a = np.cos(theta)
+            b = np.sin(theta)
+            x0 = a * r
+            y0 = b * r
+            x1 = int(x0 + 1000 * (-b))
+            y1 = int(y0 + 1000 * a)
+            x2 = int(x0 - 1000 * (-b))
+            y2 = int(y0 - 1000 * a)
+            cv2.line(im, (x1, y1), (x2, y2), (255, 255, 255), 2)
+        return im
+
+    lines = draw_lines(grid, pts)
+    mask = cv2.bitwise_not(lines)
+    return mask
+
+
 def subdivide(img, divisions=9):
     height, _ = img.shape
     cluster = height // divisions
@@ -67,20 +115,20 @@ def ocr(img_array, img_rows, img_cols):
         img /= 255
         classes = model.predict_classes(img)
         print(classes[0])
-        cv2.imshow('img', i)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        show(i)
 
 
-model = load_model('ocr/chars74k_V02.hdf5')
+model = load_model('ocr/chars74k_128.hdf5')
 model.compile(loss=keras.losses.categorical_crossentropy,
               optimizer=keras.optimizers.Adadelta(),
               metrics=['accuracy'])
-img_rows, img_cols = 28, 28
+img_rows, img_cols = 128, 128
 
-img = cv2.imread('assets/img5.jpg', cv2.IMREAD_GRAYSCALE)
+img = cv2.imread('assets/img4.jpg', cv2.IMREAD_GRAYSCALE)
 processed = process(img)
 corners = get_corners(processed)
 warped = transform(corners, processed)
-subdivided = subdivide(warped)
+mask = extract_lines(warped)
+numbers = cv2.bitwise_and(warped, mask)
+subdivided = subdivide(numbers)
 ocr(subdivided, img_rows, img_cols)
