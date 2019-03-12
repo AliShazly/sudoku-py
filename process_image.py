@@ -105,22 +105,55 @@ def extract_digits(img):
         x, y, w, h = cv2.boundingRect(i)
         if cv2.contourArea(i) > img_area * .0005:  # and round(w / h, 2) in (x / 100 for x in range(60, 91))
             cropped = img[y:y + h, x:x + w]
-            crop_h, crop_w = cropped.shape
-            try:
-                pad_h = int(crop_h / 1.75)
-                pad_w = (crop_h - crop_w) + pad_h
-                pad_h //= 2
-                pad_w //= 2
-                border = cv2.copyMakeBorder(cropped, pad_h, pad_h, pad_w, pad_w, cv2.BORDER_CONSTANT, value=(0, 0, 0))
-            except cv2.error:
-                continue
-            digits.append(border)
+            digits.append(cropped)
     return digits
+
+
+def add_border(img_arr):
+    digits = []
+    for i in img_arr:
+        crop_h, crop_w = i.shape
+        try:
+            pad_h = int(crop_h / 1.75)
+            pad_w = (crop_h - crop_w) + pad_h
+            pad_h //= 2
+            pad_w //= 2
+            border = cv2.copyMakeBorder(i, pad_h, pad_h, pad_w, pad_w, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+            digits.append(border)
+        except cv2.error:
+            continue
+    return digits
+
+
+def subdivide(img, divisions=9):
+    height, _ = img.shape
+    cluster = height // divisions
+    subdivided = img.reshape(height // cluster, cluster, -1, cluster).swapaxes(1, 2).reshape(-1, cluster, cluster)
+    return [i for i in subdivided]
+
+
+def sort_digits(subd_arr, template_arr, templates_unsorted, img_dims):
+    templates_unsorted = [cv2.resize(i, (img_dims, img_dims), interpolation=cv2.INTER_LANCZOS4) for i in
+                          templates_unsorted.copy()]
+    base = [cv2.resize(i, (img_dims, img_dims), interpolation=cv2.INTER_LANCZOS4) for i in subd_arr.copy()]
+    base = np.zeros_like(base)
+    for idx, template in enumerate(template_arr):
+        h, w = template.shape
+        for idx2, img in enumerate(subd_arr):
+            res = cv2.matchTemplate(img, template, cv2.TM_CCOEFF_NORMED)
+            found = np.where(res >= .8)
+            # I dont know why I need this here, but I can't delete it.
+            for pt in zip(*found[::-1]):
+                cv2.rectangle(img, pt, (pt[0] + w, pt[1] + h), (255, 255, 255), 2)
+            if list(zip(*found[::-1])):  # If template matched
+                base[idx2] = templates_unsorted[idx]
+                break
+    return base
 
 
 def ocr(img_array, img_dims):
     for i in img_array:
-        resized = cv2.resize(i, (img_dims, img_dims), cv2.INTER_LANCZOS4)
+        resized = cv2.resize(i, (img_dims, img_dims), interpolation=cv2.INTER_LANCZOS4)
         img = np.array([resized])
         img = img.reshape(img.shape[0], img_dims, img_dims, 1)
         img = img.astype('float32')
@@ -136,11 +169,26 @@ model.compile(loss=keras.losses.categorical_crossentropy,
               metrics=['accuracy'])
 img_dims = 28
 
-img = cv2.imread('assets/img2.jpg', cv2.IMREAD_GRAYSCALE)
+img = cv2.imread('assets/c1.jpg', cv2.IMREAD_GRAYSCALE)
+old_height, old_width = img.shape
+size = 800
+if img.shape[0] >= size:
+    aspect_ratio = size / float(old_height)
+    dim = (int(old_width * aspect_ratio), size)
+    img = cv2.resize(img, dim, interpolation=cv2.INTER_LANCZOS4)
+elif img.shape[1] >= size:
+    aspect_ratio = size / float(old_width)
+    dim = (size, int(old_height * aspect_ratio))
+    img = cv2.resize(img, dim, interpolation=cv2.INTER_LANCZOS4)
+
 processed = process(img)
 corners = get_corners(processed)
 warped = transform(corners, processed)
 mask = extract_lines(warped)
 numbers = cv2.bitwise_and(warped, mask)
-digits = extract_digits(numbers)
-ocr(digits, img_dims)
+digits_unsorted = extract_digits(numbers)
+digits_border = add_border(digits_unsorted)
+digits_subd = subdivide(numbers)
+digits_sorted = sort_digits(digits_subd, digits_unsorted, digits_border, digits_unsorted[0].shape[0])
+for i in digits_sorted:
+    show(warped, i)
