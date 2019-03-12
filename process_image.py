@@ -12,7 +12,6 @@ def show(*args):
 
 
 def process(img):
-    # kernel = np.ones((2, 2), np.uint8)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
     greyscale = img if len(img.shape) == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     denoise = cv2.GaussianBlur(greyscale, (9, 9), 0)
@@ -80,7 +79,6 @@ def extract_lines(img):
 
     def draw_lines(im, pts):
         im = np.copy(im)
-        # im = cv2.cvtColor(im, cv2.COLOR_GRAY2RGB)
         pts = np.squeeze(pts)
         for r, theta in pts:
             a = np.cos(theta)
@@ -99,36 +97,50 @@ def extract_lines(img):
     return mask
 
 
-def subdivide(img, divisions=9):
-    height, _ = img.shape
-    cluster = height // divisions
-    subdivided = img.reshape(height // cluster, cluster, -1, cluster).swapaxes(1, 2).reshape(-1, cluster, cluster)
-    return [i for i in subdivided]
+def extract_digits(img):
+    contours, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    img_area = img.shape[0] * img.shape[1]
+    digits = []
+    for i in contours:
+        x, y, w, h = cv2.boundingRect(i)
+        if cv2.contourArea(i) > img_area * .0005:  # and round(w / h, 2) in (x / 100 for x in range(60, 91))
+            cropped = img[y:y + h, x:x + w]
+            crop_h, crop_w = cropped.shape
+            try:
+                pad_h = int(crop_h / 1.75)
+                pad_w = (crop_h - crop_w) + pad_h
+                pad_h //= 2
+                pad_w //= 2
+                border = cv2.copyMakeBorder(cropped, pad_h, pad_h, pad_w, pad_w, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+            except cv2.error:
+                continue
+            digits.append(border)
+    return digits
 
 
-def ocr(img_array, img_rows, img_cols):
+def ocr(img_array, img_dims):
     for i in img_array:
-        img = cv2.resize(i, (img_rows, img_cols), cv2.INTER_LANCZOS4)
-        img = np.array([img])
-        img = img.reshape(img.shape[0], img_rows, img_cols, 1)
+        resized = cv2.resize(i, (img_dims, img_dims), cv2.INTER_LANCZOS4)
+        img = np.array([resized])
+        img = img.reshape(img.shape[0], img_dims, img_dims, 1)
         img = img.astype('float32')
         img /= 255
         classes = model.predict_classes(img)
         print(classes[0])
-        show(i)
+        show(resized)
 
 
-model = load_model('ocr/chars74k_128.hdf5')
+model = load_model('ocr/chars74k_V02.hdf5')
 model.compile(loss=keras.losses.categorical_crossentropy,
               optimizer=keras.optimizers.Adadelta(),
               metrics=['accuracy'])
-img_rows, img_cols = 128, 128
+img_dims = 28
 
-img = cv2.imread('assets/img4.jpg', cv2.IMREAD_GRAYSCALE)
+img = cv2.imread('assets/img2.jpg', cv2.IMREAD_GRAYSCALE)
 processed = process(img)
 corners = get_corners(processed)
 warped = transform(corners, processed)
 mask = extract_lines(warped)
 numbers = cv2.bitwise_and(warped, mask)
-subdivided = subdivide(numbers)
-ocr(subdivided, img_rows, img_cols)
+digits = extract_digits(numbers)
+ocr(digits, img_dims)
