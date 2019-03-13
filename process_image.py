@@ -224,6 +224,16 @@ def stitch_img(img_arr, img_dims):
     return np.array(result)
 
 
+def inverse_perspective(img, dst_img, pts):
+    pts_source = np.array([[0, 0], [img.shape[1] - 1, 0], [img.shape[1] - 1, img.shape[0] - 1], [0, img.shape[0] - 1]],
+                          dtype='float32')
+    h, status = cv2.findHomography(pts_source, pts)
+    warped = cv2.warpPerspective(img, h, (dst_img.shape[1], dst_img.shape[0]))
+    cv2.fillConvexPoly(dst_img, np.ceil(pts).astype(int), 0, 16)
+    dst_img = dst_img + warped
+    return dst_img
+
+
 model = load_model('ocr/chars74k_V02.hdf5')
 model.compile(loss=keras.losses.categorical_crossentropy,
               optimizer=keras.optimizers.Adadelta(),
@@ -247,5 +257,6 @@ solved = solve(puzzle.copy().tolist())  # Solve function modifies original puzzl
 warped_img = transform(corners, img)
 subd = subdivide(warped_img)
 subd_soln = put_solution(subd, solved, puzzle)
-stitched_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
-show(stitched_soln)
+warped_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
+warped_inverse = inverse_perspective(warped_soln, img, np.array(corners))
+show(warped_inverse)
