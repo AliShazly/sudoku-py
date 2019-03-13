@@ -1,7 +1,10 @@
 import cv2
 import keras
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 from keras.models import load_model
+
+from sudoku import solve
 
 
 def show(*args):
@@ -9,6 +12,24 @@ def show(*args):
         cv2.imshow(str(i), j)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
+
+def read(fp, greyscale=True):
+    if greyscale:
+        img = cv2.imread(fp, cv2.IMREAD_GRAYSCALE)
+    else:
+        img = cv2.imread(fp, cv2.IMREAD_COLOR)
+    old_height, old_width = img.shape[:2]
+    size = 800
+    if img.shape[0] >= size:
+        aspect_ratio = size / float(old_height)
+        dim = (int(old_width * aspect_ratio), size)
+        img = cv2.resize(img, dim, interpolation=cv2.INTER_LANCZOS4)
+    elif img.shape[1] >= size:
+        aspect_ratio = size / float(old_width)
+        dim = (size, int(old_height * aspect_ratio))
+        img = cv2.resize(img, dim, interpolation=cv2.INTER_LANCZOS4)
+    return img
 
 
 def process(img):
@@ -112,7 +133,7 @@ def extract_digits(img):
 def add_border(img_arr):
     digits = []
     for i in img_arr:
-        crop_h, crop_w = i.shape
+        crop_h, crop_w = i.shape[:2]
         try:
             pad_h = int(crop_h / 1.75)
             pad_w = (crop_h - crop_w) + pad_h
@@ -126,19 +147,19 @@ def add_border(img_arr):
 
 
 def subdivide(img, divisions=9):
-    height, _ = img.shape
+    height, _ = img.shape[:2]
     cluster = height // divisions
     subdivided = img.reshape(height // cluster, cluster, -1, cluster).swapaxes(1, 2).reshape(-1, cluster, cluster)
     return [i for i in subdivided]
 
 
-def sort_digits(subd_arr, template_arr, templates_unsorted, img_dims):
-    templates_unsorted = [cv2.resize(i, (img_dims, img_dims), interpolation=cv2.INTER_LANCZOS4) for i in
-                          templates_unsorted.copy()]
+def sort_digits(subd_arr, template_arr, digits_unsorted, img_dims):
+    digits_unsorted = [cv2.resize(i, (img_dims, img_dims), interpolation=cv2.INTER_LANCZOS4) for i in
+                       digits_unsorted.copy()]
     base = [cv2.resize(i, (img_dims, img_dims), interpolation=cv2.INTER_LANCZOS4) for i in subd_arr.copy()]
     base = np.zeros_like(base)
     for idx, template in enumerate(template_arr):
-        h, w = template.shape
+        h, w = template.shape[:2]
         for idx2, img in enumerate(subd_arr):
             res = cv2.matchTemplate(img, template, cv2.TM_CCOEFF_NORMED)
             found = np.where(res >= .8)
@@ -146,21 +167,61 @@ def sort_digits(subd_arr, template_arr, templates_unsorted, img_dims):
             for pt in zip(*found[::-1]):
                 cv2.rectangle(img, pt, (pt[0] + w, pt[1] + h), (255, 255, 255), 2)
             if list(zip(*found[::-1])):  # If template matched
-                base[idx2] = templates_unsorted[idx]
+                base[idx2] = digits_unsorted[idx]
                 break
     return base
 
 
-def ocr(img_array, img_dims):
-    for i in img_array:
+def img_to_array(img_arr, img_dims):
+    predictions = []
+    for i in img_arr:
         resized = cv2.resize(i, (img_dims, img_dims), interpolation=cv2.INTER_LANCZOS4)
-        img = np.array([resized])
-        img = img.reshape(img.shape[0], img_dims, img_dims, 1)
-        img = img.astype('float32')
-        img /= 255
-        classes = model.predict_classes(img)
-        print(classes[0])
-        show(resized)
+        if np.sum(resized) == 0:
+            predictions.append(0)
+            continue
+        array = np.array([resized])
+        reshaped = array.reshape(array.shape[0], img_dims, img_dims, 1)
+        flt = reshaped.astype('float32')
+        flt /= 255
+        prediction = model.predict_classes(flt)
+        predictions.append(prediction[0])
+    puzzle = np.array(predictions).reshape((9, 9))
+    return puzzle
+
+
+def put_solution(img_arr, soln_arr, unsolved_arr):
+    solutions = np.array(soln_arr).reshape(81)
+    unsolveds = np.array(unsolved_arr).reshape(81)
+    paired = list((zip(solutions, unsolveds, img_arr)))
+    img_solved = []
+    for solution, unsolved, img in paired:
+        if solution == unsolved:
+            img_solved.append(img)
+            continue
+        img_h, img_w = img.shape[:2]
+        pil_img = Image.fromarray(img)
+        draw = ImageDraw.Draw(pil_img)
+        fnt = ImageFont.truetype('assets/FreeMono.ttf', img_h)
+        font_w, font_h = draw.textsize(str(solution), font=fnt)
+        draw.text(((img_w - font_w) / 2, (img_h - font_h) / 2 - img_h // 10), str(solution), fill=0,
+                  font=fnt)
+        cv2_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+        img_solved.append(cv2_img)
+    return img_solved
+
+
+def stitch_img(img_arr, img_dims):
+    result = Image.new('L', img_dims)
+    box = [0, 0]
+    for img in img_arr:
+        pil_img = Image.fromarray(img)
+        result.paste(pil_img, tuple(box))
+        if box[0] + img.shape[1] >= result.size[1]:
+            box[0] = 0
+            box[1] += img.shape[0]
+        else:
+            box[0] += img.shape[1]
+    return np.array(result)
 
 
 model = load_model('ocr/chars74k_V02.hdf5')
@@ -169,18 +230,8 @@ model.compile(loss=keras.losses.categorical_crossentropy,
               metrics=['accuracy'])
 img_dims = 28
 
-img = cv2.imread('assets/c1.jpg', cv2.IMREAD_GRAYSCALE)
-old_height, old_width = img.shape
-size = 800
-if img.shape[0] >= size:
-    aspect_ratio = size / float(old_height)
-    dim = (int(old_width * aspect_ratio), size)
-    img = cv2.resize(img, dim, interpolation=cv2.INTER_LANCZOS4)
-elif img.shape[1] >= size:
-    aspect_ratio = size / float(old_width)
-    dim = (size, int(old_height * aspect_ratio))
-    img = cv2.resize(img, dim, interpolation=cv2.INTER_LANCZOS4)
-
+fp = 'assets/c1.jpg'
+img = read(fp)
 processed = process(img)
 corners = get_corners(processed)
 warped = transform(corners, processed)
@@ -189,6 +240,12 @@ numbers = cv2.bitwise_and(warped, mask)
 digits_unsorted = extract_digits(numbers)
 digits_border = add_border(digits_unsorted)
 digits_subd = subdivide(numbers)
-digits_sorted = sort_digits(digits_subd, digits_unsorted, digits_border, digits_unsorted[0].shape[0])
-for i in digits_sorted:
-    show(warped, i)
+digits_sorted = sort_digits(digits_subd, digits_unsorted, digits_border, digits_border[0].shape[0])
+puzzle = img_to_array(digits_sorted, img_dims)
+solved = solve(puzzle.copy().tolist())  # Solve function modifies original puzzle var
+
+warped_img = transform(corners, img)
+subd = subdivide(warped_img)
+subd_soln = put_solution(subd, solved, puzzle)
+stitched_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
+show(stitched_soln)
