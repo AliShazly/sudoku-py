@@ -15,10 +15,7 @@ def show(*args):
 
 
 def read(fp, greyscale=True):
-    if greyscale:
-        img = cv2.imread(fp, cv2.IMREAD_GRAYSCALE)
-    else:
-        img = cv2.imread(fp, cv2.IMREAD_COLOR)
+    img = cv2.imread(fp, cv2.IMREAD_GRAYSCALE if greyscale else cv2.IMREAD_COLOR)
     old_height, old_width = img.shape[:2]
     size = 800
     if img.shape[0] >= size:
@@ -148,8 +145,11 @@ def add_border(img_arr):
 
 def subdivide(img, divisions=9):
     height, _ = img.shape[:2]
-    cluster = height // divisions
-    subdivided = img.reshape(height // cluster, cluster, -1, cluster).swapaxes(1, 2).reshape(-1, cluster, cluster)
+    box = height // divisions
+    if len(img.shape) > 2:
+        subdivided = img.reshape(height // box, box, -1, box, 3).swapaxes(1, 2).reshape(-1, box, box, 3)
+    else:
+        subdivided = img.reshape(height // box, box, -1, box).swapaxes(1, 2).reshape(-1, box, box)
     return [i for i in subdivided]
 
 
@@ -199,19 +199,20 @@ def put_solution(img_arr, soln_arr, unsolved_arr):
             img_solved.append(img)
             continue
         img_h, img_w = img.shape[:2]
-        pil_img = Image.fromarray(img)
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        pil_img = Image.fromarray(img_rgb)
         draw = ImageDraw.Draw(pil_img)
         fnt = ImageFont.truetype('assets/FreeMono.ttf', img_h)
         font_w, font_h = draw.textsize(str(solution), font=fnt)
-        draw.text(((img_w - font_w) / 2, (img_h - font_h) / 2 - img_h // 10), str(solution), fill=0,
-                  font=fnt)
+        draw.text(((img_w - font_w) / 2, (img_h - font_h) / 2 - img_h // 10), str(solution),
+                  fill=((0, 127, 255) if len(img.shape) > 2 else 0), font=fnt)
         cv2_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         img_solved.append(cv2_img)
     return img_solved
 
 
 def stitch_img(img_arr, img_dims):
-    result = Image.new('L', img_dims)
+    result = Image.new('RGB' if len(img_arr[0].shape) > 2 else 'L', img_dims)
     box = [0, 0]
     for img in img_arr:
         pil_img = Image.fromarray(img)
@@ -234,26 +235,25 @@ def inverse_perspective(img, dst_img, pts):
     return dst_img
 
 
-model = load_model('ocr/chars74k_V02.hdf5')
+model = load_model('ocr/chars74k_thresh.hdf5')
 model.compile(loss=keras.losses.categorical_crossentropy,
               optimizer=keras.optimizers.Adadelta(),
               metrics=['accuracy'])
 img_dims = 28
 
-fp = 'assets/c1.jpg'
-img = read(fp)
+fp = 'assets/c6.jpg'
+img = read(fp, greyscale=False)
 processed = process(img)
 corners = get_corners(processed)
 warped = transform(corners, processed)
 mask = extract_lines(warped)
 numbers = cv2.bitwise_and(warped, mask)
 digits_unsorted = extract_digits(numbers)
-digits_border = add_border(digits_unsorted)
 digits_subd = subdivide(numbers)
-digits_sorted = sort_digits(digits_subd, digits_unsorted, digits_border, digits_border[0].shape[0])
-puzzle = img_to_array(digits_sorted, img_dims)
+digits_sorted = sort_digits(digits_subd, digits_unsorted, img_dims)
+digits_border = add_border(digits_sorted)
+puzzle = img_to_array(digits_border, img_dims)
 solved = solve(puzzle.copy().tolist())  # Solve function modifies original puzzle var
-
 warped_img = transform(corners, img)
 subd = subdivide(warped_img)
 subd_soln = put_solution(subd, solved, puzzle)
