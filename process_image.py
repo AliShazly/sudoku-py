@@ -153,23 +153,23 @@ def subdivide(img, divisions=9):
     return [i for i in subdivided]
 
 
-def sort_digits(subd_arr, template_arr, digits_unsorted, img_dims):
-    digits_unsorted = [cv2.resize(i, (img_dims, img_dims), interpolation=cv2.INTER_LANCZOS4) for i in
-                       digits_unsorted.copy()]
-    base = [cv2.resize(i, (img_dims, img_dims), interpolation=cv2.INTER_LANCZOS4) for i in subd_arr.copy()]
-    base = np.zeros_like(base)
-    for idx, template in enumerate(template_arr):
-        h, w = template.shape[:2]
-        for idx2, img in enumerate(subd_arr):
+def sort_digits(subd_arr, template_arr, img_dims):
+    sorted_digits = []
+    for idx, img in enumerate(subd_arr):
+        if np.sum(img) < 255 * img.shape[0]:
+            sorted_digits.append(np.zeros((img_dims, img_dims), dtype='uint8'))
+            continue
+        for idx2, template in enumerate(template_arr):
             res = cv2.matchTemplate(img, template, cv2.TM_CCOEFF_NORMED)
-            found = np.where(res >= .8)
-            # I dont know why I need this here, but I can't delete it.
-            for pt in zip(*found[::-1]):
-                cv2.rectangle(img, pt, (pt[0] + w, pt[1] + h), (255, 255, 255), 2)
-            if list(zip(*found[::-1])):  # If template matched
-                base[idx2] = digits_unsorted[idx]
-                break
-    return base
+            loc = np.where(res >= .9)
+            for i in zip(*loc[::-1]):
+                if i is not None:
+                    sorted_digits.append(template)
+                    break
+            else:
+                continue
+            break
+    return sorted_digits
 
 
 def img_to_array(img_arr, img_dims):
