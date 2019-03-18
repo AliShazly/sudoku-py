@@ -11,7 +11,7 @@ from keras.models import Sequential
 
 batch_size = 64
 num_classes = 10
-epochs = 30
+epochs = 12
 
 # input image dimensions
 img_rows, img_cols = 28, 28
@@ -98,4 +98,4 @@ score = model.evaluate(x_test, y_test, verbose=0)
 print('Test loss:', score[0])
 print('Test accuracy:', score[1])
 
-model.save('chars74k_V02.hdf5')
+model.save('chars74k.hdf5')
