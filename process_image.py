@@ -4,7 +4,13 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from keras.models import load_model
 
-from sudoku import solve
+from sudoku import solve, check_if_solvable, verify
+
+model = load_model('ocr/model.hdf5')
+model.compile(loss=keras.losses.categorical_crossentropy,
+              optimizer=keras.optimizers.Adadelta(),
+              metrics=['accuracy'])
+img_dims = 28
 
 
 def show(*args):
@@ -14,10 +20,8 @@ def show(*args):
     cv2.destroyAllWindows()
 
 
-def read(fp, greyscale=True):
-    img = cv2.imread(fp, cv2.IMREAD_GRAYSCALE if greyscale else cv2.IMREAD_COLOR)
+def resize_keep_aspect(img, size=800):
     old_height, old_width = img.shape[:2]
-    size = 800
     if img.shape[0] >= size:
         aspect_ratio = size / float(old_height)
         dim = (int(old_width * aspect_ratio), size)
@@ -33,8 +37,7 @@ def process(img):
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
     greyscale = img if len(img.shape) == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     denoise = cv2.GaussianBlur(greyscale, (9, 9), 0)
-    thresh = cv2.adaptiveThreshold(denoise, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                   cv2.THRESH_BINARY, 11, 2)
+    thresh = cv2.adaptiveThreshold(denoise, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
     inverted = cv2.bitwise_not(thresh, 0)
     morph = cv2.morphologyEx(inverted, cv2.MORPH_OPEN, kernel)
     dilated = cv2.dilate(morph, kernel, iterations=1)
@@ -44,7 +47,7 @@ def process(img):
 def get_corners(img):
     contours, hire = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=lambda x: cv2.contourArea(x), reverse=True)
-    largest_contour = np.squeeze(contours[0])  # Getting rid of extra dimenstions
+    largest_contour = np.squeeze(contours[0])
 
     sums = [sum(i) for i in largest_contour]
     differences = [i[0] - i[1] for i in largest_contour]
@@ -84,12 +87,14 @@ def extract_lines(img):
     horizontal_structure = cv2.getStructuringElement(cv2.MORPH_RECT, (horizontal_size, 1))
     horizontal = cv2.erode(horizontal, horizontal_structure)
     horizontal = cv2.dilate(horizontal, horizontal_structure)
+
     vertical = np.copy(img)
     rows = vertical.shape[0]
     vertical_size = rows // length
     vertical_structure = cv2.getStructuringElement(cv2.MORPH_RECT, (1, vertical_size))
     vertical = cv2.erode(vertical, vertical_structure)
     vertical = cv2.dilate(vertical, vertical_structure)
+
     grid = cv2.add(horizontal, vertical)
     grid = cv2.adaptiveThreshold(grid, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 235, 2)
     grid = cv2.dilate(grid, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)), iterations=2)
@@ -155,20 +160,16 @@ def subdivide(img, divisions=9):
 
 def sort_digits(subd_arr, template_arr, img_dims):
     sorted_digits = []
-    for idx, img in enumerate(subd_arr):
-        if np.sum(img) < 255 * img.shape[0]:
+    for img in subd_arr:
+        if np.sum(img) < 255 * img.shape[0]:  # Accounting for small amounts of noise in blank pixel spaces
             sorted_digits.append(np.zeros((img_dims, img_dims), dtype='uint8'))
             continue
-        for idx2, template in enumerate(template_arr):
-            res = cv2.matchTemplate(img, template, cv2.TM_CCOEFF_NORMED)
-            loc = np.where(res >= .9)
-            for i in zip(*loc[::-1]):
-                if i is not None:
-                    sorted_digits.append(template)
-                    break
-            else:
-                continue
-            break
+        for template in template_arr:
+            res = cv2.matchTemplate(img, template, cv2.TM_CCORR_NORMED)
+            loc = np.array(np.where(res >= .9))
+            if loc.size != 0:
+                sorted_digits.append(template)
+                break
     return sorted_digits
 
 
@@ -235,28 +236,94 @@ def inverse_perspective(img, dst_img, pts):
     return dst_img
 
 
-model = load_model('ocr/chars74k_thresh.hdf5')
-model.compile(loss=keras.losses.categorical_crossentropy,
-              optimizer=keras.optimizers.Adadelta(),
-              metrics=['accuracy'])
-img_dims = 28
+def solve_image(fp):
+    try:
+        img = resize_keep_aspect(cv2.imread(fp, cv2.IMREAD_COLOR))
+        processed = process(img)
+        corners = get_corners(processed)
+        warped = transform(corners, processed)
+        mask = extract_lines(warped)
+        numbers = cv2.bitwise_and(warped, mask)
+        digits_unsorted = extract_digits(numbers)
+        digits_subd = subdivide(numbers)
+        digits_sorted = sort_digits(digits_subd, digits_unsorted, img_dims)
+        digits_border = add_border(digits_sorted)
+        puzzle = img_to_array(digits_border, img_dims)
+        solved = solve(puzzle.copy().tolist())  # Solve function modifies original puzzle var
+        warped_img = transform(corners, img)
+        subd = subdivide(warped_img)
+        subd_soln = put_solution(subd, solved, puzzle)
+        warped_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
+        warped_inverse = inverse_perspective(warped_soln, img, np.array(corners))
+        show(warped_inverse)
+    except Exception as e:
+        print(f'Image not solvable: {e}')
 
-fp = 'assets/c6.jpg'
-img = read(fp, greyscale=False)
-processed = process(img)
-corners = get_corners(processed)
-warped = transform(corners, processed)
-mask = extract_lines(warped)
-numbers = cv2.bitwise_and(warped, mask)
-digits_unsorted = extract_digits(numbers)
-digits_subd = subdivide(numbers)
-digits_sorted = sort_digits(digits_subd, digits_unsorted, img_dims)
-digits_border = add_border(digits_sorted)
-puzzle = img_to_array(digits_border, img_dims)
-solved = solve(puzzle.copy().tolist())  # Solve function modifies original puzzle var
-warped_img = transform(corners, img)
-subd = subdivide(warped_img)
-subd_soln = put_solution(subd, solved, puzzle)
-warped_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
-warped_inverse = inverse_perspective(warped_soln, img, np.array(corners))
-show(warped_inverse)
+
+def solve_webcam():
+    cap = cv2.VideoCapture(0)
+    stored_soln = []
+    stored_puzzle = []
+    while True:
+        ret, frame = cap.read()
+        img = resize_keep_aspect(frame)
+        try:
+            processed = process(img)
+            corners = get_corners(processed)
+            warped = transform(corners, processed)
+            mask = extract_lines(warped)
+
+            # Checks to see if the mask matches a grid-like structure
+            cells = [np.pad(np.ones((7, 7), np.uint8) * 255, (1, 1), 'constant', constant_values=(0, 0)) for _ in
+                     range(81)]
+            grid = stitch_img(cells, (81, 81))
+            template = cv2.resize(grid, (warped.shape[0],) * 2, interpolation=cv2.INTER_NEAREST)
+            res = cv2.matchTemplate(mask, template, cv2.TM_CCORR_NORMED)
+            loc = np.array(np.where(res >= .6))
+            if loc.size == 0:
+                raise Exception('Grid template not matched')
+
+            if stored_soln and stored_puzzle:
+                warped_img = transform(corners, img)
+                subd = subdivide(warped_img)
+                subd_soln = put_solution(subd, stored_soln, stored_puzzle)
+                warped_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
+                warped_inverse = inverse_perspective(warped_soln, img, np.array(corners))
+                cv2.imshow('frame', warped_inverse)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+                continue
+
+            numbers = cv2.bitwise_and(warped, mask)
+            digits_unsorted = extract_digits(numbers)
+            digits_subd = subdivide(numbers)
+            digits_sorted = sort_digits(digits_subd, digits_unsorted, img_dims)
+            digits_border = add_border(digits_sorted)
+            puzzle = img_to_array(digits_border, img_dims)
+
+            if not check_if_solvable(puzzle):
+                raise Exception('Puzzle is empty')
+
+            solved = solve(puzzle.copy().tolist())
+            if not solved:
+                raise Exception('Puzzle not solvable')
+
+            if verify(solved):
+                stored_puzzle = puzzle.tolist()
+                stored_soln = solved
+
+            warped_img = transform(corners, img)
+            subd = subdivide(warped_img)
+            subd_soln = put_solution(subd, solved, puzzle)
+            warped_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
+            warped_inverse = inverse_perspective(warped_soln, img, np.array(corners))
+            cv2.imshow('frame', warped_inverse)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+        except Exception as e:
+            print(e)
+            cv2.imshow('frame', img)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+            continue
