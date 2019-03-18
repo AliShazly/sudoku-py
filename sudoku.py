@@ -1,7 +1,3 @@
-import time
-import json
-
-
 def get_row(puzzle, row_num):
     return puzzle[row_num]
 
@@ -29,6 +25,17 @@ def get_possibilities(puzzle, row_num, col_num):
     return possible - not_possible
 
 
+def check_if_solvable(unsolved_puzzle):
+    for i in range(9):
+        if sum(set(get_row(unsolved_puzzle, i))) != sum(get_row(unsolved_puzzle, i)):
+            return False
+        if sum(set(get_column(unsolved_puzzle, i))) != sum(get_column(unsolved_puzzle, i)):
+            return False
+        if sum(set(get_square(unsolved_puzzle, i, i))) != sum(get_square(unsolved_puzzle, i, i)):
+            return False
+    return True
+
+
 def solve(puzzle):
     solved = True
     for row, row_values in enumerate(puzzle):
@@ -51,25 +58,12 @@ def solve(puzzle):
     return False
 
 
-def test():
-    with open('assets\\puzzles.json') as f:
-        puzzles = json.load(f)
-    for i in puzzles:
-        start = time.time()
-        solved = solve(i)
-        end = time.time()
-        for j in range(9):
-            if sum(get_row(solved, j)) != 45:
-                return False
-            if sum(get_column(solved, j)) != 45:
-                return False
-            if sum(get_square(solved, j, j)) != 45:
-                return False
-        print(f'Solved puzzle in {round(end - start, 2)} seconds')
-        for i in solved:
-            print(i)
+def verify(solved_puzzle):
+    for i in range(9):
+        if sum(get_row(solved_puzzle, i)) != 45:
+            return False
+        if sum(get_column(solved_puzzle, i)) != 45:
+            return False
+        if sum(get_square(solved_puzzle, i, i)) != 45:
+            return False
     return True
-
-
-if __name__ == '__main__':
-    test()
