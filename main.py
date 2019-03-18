@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from keras.models import load_model
 
-from sudoku import solve, check_if_solvable, verify
+from solve_puzzle import solve, check_if_solvable, verify
 
 model = load_model('ocr/model.hdf5')
 model.compile(loss=keras.losses.categorical_crossentropy,
@@ -281,7 +281,7 @@ def solve_webcam():
             res = cv2.matchTemplate(mask, template, cv2.TM_CCORR_NORMED)
             loc = np.array(np.where(res >= .6))
             if loc.size == 0:
-                raise Exception('Grid template not matched')
+                raise ValueError('Grid template not matched')
 
             if stored_soln and stored_puzzle:
                 warped_img = transform(corners, img)
@@ -302,11 +302,11 @@ def solve_webcam():
             puzzle = img_to_array(digits_border, img_dims)
 
             if not check_if_solvable(puzzle):
-                raise Exception('Puzzle is empty')
+                raise ValueError('Puzzle not solvable')
 
             solved = solve(puzzle.copy().tolist())
             if not solved:
-                raise Exception('Puzzle not solvable')
+                raise ValueError('Puzzle not solvable')
 
             if verify(solved):
                 stored_puzzle = puzzle.tolist()
@@ -321,8 +321,7 @@ def solve_webcam():
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-        except Exception as e:
-            print(e)
+        except (ValueError, cv2.error):
             cv2.imshow('frame', img)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break

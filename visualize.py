@@ -1,8 +1,10 @@
-from PIL import Image, ImageDraw, ImageFont
 import json
-from sudoku import get_possibilities
+
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
+from solve_puzzle import get_possibilities
 
 with open('assets\\puzzles.json') as f:
     puzzles = json.load(f)
