@@ -1,3 +1,5 @@
+import argparse
+
 import cv2
 import keras
 import numpy as np
@@ -6,11 +8,17 @@ from keras.models import load_model
 
 from solve_puzzle import solve, check_if_solvable, verify
 
-model = load_model('ocr/model.hdf5')
+try:
+    model = load_model('ocr/model_02.hdf5')
+    img_dims = 64
+except OSError:
+    print('Main model not found, loading secondary model...')
+    model = load_model('ocr/model.hdf5')
+    img_dims = 32
+
 model.compile(loss=keras.losses.categorical_crossentropy,
               optimizer=keras.optimizers.Adadelta(),
               metrics=['accuracy'])
-img_dims = 28
 
 
 def show(*args):
@@ -185,7 +193,7 @@ def img_to_array(img_arr, img_dims):
         flt = reshaped.astype('float32')
         flt /= 255
         prediction = model.predict_classes(flt)
-        predictions.append(prediction[0])
+        predictions.append(prediction[0] + 1)  # OCR predicts from 0-8, changing it to 1-9
     puzzle = np.array(predictions).reshape((9, 9))
     return puzzle
 
@@ -255,15 +263,19 @@ def solve_image(fp):
         subd_soln = put_solution(subd, solved, puzzle)
         warped_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
         warped_inverse = inverse_perspective(warped_soln, img, np.array(corners))
-        show(warped_inverse)
+        return warped_inverse
     except Exception as e:
         print(f'Image not solvable: {e}')
+        return None
 
 
-def solve_webcam():
+def solve_webcam(debug=False):
     cap = cv2.VideoCapture(0)
     stored_soln = []
     stored_puzzle = []
+    # Creating placeholder grid to match against until one is taken from the sudoku puzzle
+    cells = [np.pad(np.ones((7, 7), np.uint8) * 255, (1, 1), 'constant', constant_values=(0, 0)) for _ in range(81)]
+    grid = stitch_img(cells, (81, 81))
     while True:
         ret, frame = cap.read()
         img = resize_keep_aspect(frame)
@@ -274,9 +286,6 @@ def solve_webcam():
             mask = extract_lines(warped)
 
             # Checks to see if the mask matches a grid-like structure
-            cells = [np.pad(np.ones((7, 7), np.uint8) * 255, (1, 1), 'constant', constant_values=(0, 0)) for _ in
-                     range(81)]
-            grid = stitch_img(cells, (81, 81))
             template = cv2.resize(grid, (warped.shape[0],) * 2, interpolation=cv2.INTER_NEAREST)
             res = cv2.matchTemplate(mask, template, cv2.TM_CCORR_NORMED)
             loc = np.array(np.where(res >= .6))
@@ -302,7 +311,7 @@ def solve_webcam():
             puzzle = img_to_array(digits_border, img_dims)
 
             if not check_if_solvable(puzzle):
-                raise ValueError('Puzzle not solvable')
+                raise ValueError('OCR Prediction wrong')
 
             solved = solve(puzzle.copy().tolist())
             if not solved:
@@ -311,6 +320,7 @@ def solve_webcam():
             if verify(solved):
                 stored_puzzle = puzzle.tolist()
                 stored_soln = solved
+                grid = mask
 
             warped_img = transform(corners, img)
             subd = subdivide(warped_img)
@@ -321,8 +331,39 @@ def solve_webcam():
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-        except (ValueError, cv2.error):
+        except Exception as e:
             cv2.imshow('frame', img)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
+            if debug:
+                print(e)
             continue
+
+
+parser = argparse.ArgumentParser()
+inputs = parser.add_mutually_exclusive_group()
+
+inputs.add_argument('-f', '--file', type=str,
+                    help='File path to an image of a sudoku puzzle')
+parser.add_argument('-s', '--save', action='store_true',
+                    help='Save image to specified file\'s current directory')
+inputs.add_argument('-w', '--webcam', action='store_true',
+                    help='Use webcam to solve sudoku puzzle in real time (EXPERIMENTAL)')
+parser.add_argument('-d', '--debug', action='store_true',
+                    help='Enables debug information output')
+
+args = parser.parse_args()
+
+if args.webcam:
+    if args.debug:
+        solve_webcam(debug=True)
+    else:
+        solve_webcam()
+else:
+    solved = solve_image(args.file)
+    if solved is None:
+        raise SystemExit
+    if args.save:
+        cv2.imwrite(f'{args.file[:-4]}_solved.png', solved)
+    else:
+        show(solved)
