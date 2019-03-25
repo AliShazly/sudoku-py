@@ -9,6 +9,7 @@ from keras.models import load_model
 from solve_puzzle import solve, check_if_solvable, verify
 
 try:
+    print('Loading model...')
     model = load_model('ocr/model_02.hdf5')
     img_dims = 64
 except OSError:
@@ -262,7 +263,7 @@ def solve_image(fp):
         subd = subdivide(warped_img)
         subd_soln = put_solution(subd, solved, puzzle)
         warped_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
-        warped_inverse = inverse_perspective(warped_soln, img, np.array(corners))
+        warped_inverse = inverse_perspective(warped_soln, img.copy(), np.array(corners))
         return warped_inverse
     except Exception as e:
         print(f'Image not solvable: {e}')
@@ -288,7 +289,8 @@ def solve_webcam(debug=False):
             # Checks to see if the mask matches a grid-like structure
             template = cv2.resize(grid, (warped.shape[0],) * 2, interpolation=cv2.INTER_NEAREST)
             res = cv2.matchTemplate(mask, template, cv2.TM_CCORR_NORMED)
-            loc = np.array(np.where(res >= .6))
+            threshold = .55
+            loc = np.array(np.where(res >= threshold))
             if loc.size == 0:
                 raise ValueError('Grid template not matched')
 
@@ -309,6 +311,9 @@ def solve_webcam(debug=False):
             digits_sorted = sort_digits(digits_subd, digits_unsorted, img_dims)
             digits_border = add_border(digits_sorted)
             puzzle = img_to_array(digits_border, img_dims)
+
+            if np.sum(puzzle) == 0:
+                raise ValueError('False positive')
 
             if not check_if_solvable(puzzle):
                 raise ValueError('OCR Prediction wrong')
@@ -358,12 +363,15 @@ if args.webcam:
     if args.debug:
         solve_webcam(debug=True)
     else:
+        print('Using webcam input. Press "q" to exit.')
         solve_webcam()
 else:
     solved = solve_image(args.file)
     if solved is None:
         raise SystemExit
     if args.save:
-        cv2.imwrite(f'{args.file[:-4]}_solved.png', solved)
+        cv2.imwrite(f'{args.file[:-4]}_solved.{args.file[-3:]}', solved)
+        print(f'Saved: {args.file[:-4]}_solved.{args.file[-3:]}')
     else:
+        print('Solving...')
         show(solved)
