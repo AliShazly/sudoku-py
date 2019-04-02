@@ -72,7 +72,7 @@ def get_corners(img):
     return corners
 
 
-def transform(pts, img):
+def transform(pts, img):  # TODO: Spline transform, remove this
     pts = np.float32(pts)
     top_l, top_r, bot_l, bot_r = pts[0], pts[1], pts[2], pts[3]
 
@@ -89,8 +89,7 @@ def transform(pts, img):
     return warped
 
 
-def extract_lines(img):
-    length = 12
+def get_grid_lines(img, length = 12):
     horizontal = np.copy(img)
     cols = horizontal.shape[1]
     horizontal_size = cols // length
@@ -105,6 +104,18 @@ def extract_lines(img):
     vertical = cv2.erode(vertical, vertical_structure)
     vertical = cv2.dilate(vertical, vertical_structure)
 
+    return vertical, horizontal
+
+
+def spline_transform(img, vertical, horizontal): 
+    # TODO: Try cropping the image to the corners, 
+    # but erode the area a little bit, making it include the outer parts of the puzzle
+    img_points = cv2.bitwise_and(vertical, horizontal)
+    kernel = np.ones((2,2), np.uint8)
+    denoise = cv2.morphologyEx(img_points, cv2.MORPH_OPEN, kernel)
+
+
+def extract_lines(img, vertical, horizontal):
     grid = cv2.add(horizontal, vertical)
     grid = cv2.adaptiveThreshold(grid, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 235, 2)
     grid = cv2.dilate(grid, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)), iterations=2)
@@ -199,21 +210,6 @@ def add_zeros(sorted_arr, subd_arr):
     return puzzle_template
 
 
-# def sort_digits(subd_arr, template_arr, img_dims):
-#     sorted_digits = []
-#     for img in subd_arr:
-#         if np.sum(img) < 255 * img.shape[0]:  # Accounting for small amounts of noise in blank pixel spaces
-#             sorted_digits.append(np.zeros((img_dims, img_dims), dtype='uint8'))
-#             continue
-#         for template in template_arr:
-#             res = cv2.matchTemplate(img, template, cv2.TM_CCORR_NORMED)
-#             loc = np.array(np.where(res >= .9))
-#             if loc.size != 0:
-#                 sorted_digits.append(template)
-#                 break
-#     return sorted_digits
-
-
 def img_to_array(img_arr, img_dims):
     predictions = []
     for i in img_arr:
@@ -287,7 +283,8 @@ def solve_image(fp):
     processed = process(img)
     corners = get_corners(processed)
     warped = transform(corners, processed)
-    mask = extract_lines(warped)
+    vertical_lines, horizontal_lines = get_grid_lines(warped)
+    mask = extract_lines(warped, vertical_lines, horizontal_lines)
     numbers = cv2.bitwise_and(warped, mask)
     digits_sorted = extract_digits(numbers)
     digits_border = add_border(digits_sorted)
@@ -332,7 +329,8 @@ def solve_webcam(debug=False):
             processed = process(img)
             corners = get_corners(processed)
             warped = transform(corners, processed)
-            mask = extract_lines(warped)
+            vertical_lines, horizontal_lines = get_grid_lines(warped)
+            mask = extract_lines(warped, vertical_lines, horizontal_lines)
 
             # Checks to see if the mask matches a grid-like structure
             template = cv2.resize(grid, (warped.shape[0],) * 2, interpolation=cv2.INTER_NEAREST)
@@ -393,35 +391,36 @@ def solve_webcam(debug=False):
             continue
 
 
-parser = argparse.ArgumentParser()
-inputs = parser.add_mutually_exclusive_group()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    inputs = parser.add_mutually_exclusive_group()
 
-inputs.add_argument('-f', '--file', type=str,
-                    help='File path to an image of a sudoku puzzle')
-parser.add_argument('-s', '--save', action='store_true',
-                    help='Save image to specified file\'s current directory')
-inputs.add_argument('-w', '--webcam', action='store_true',
-                    help='Use webcam to solve sudoku puzzle in real time (EXPERIMENTAL)')
-parser.add_argument('-d', '--debug', action='store_true',
-                    help='Enables debug information output')
+    inputs.add_argument('-f', '--file', type=str,
+                        help='File path to an image of a sudoku puzzle')
+    parser.add_argument('-s', '--save', action='store_true',
+                        help='Save image to specified file\'s current directory')
+    inputs.add_argument('-w', '--webcam', action='store_true',
+                        help='Use webcam to solve sudoku puzzle in real time (EXPERIMENTAL)')
+    parser.add_argument('-d', '--debug', action='store_true',
+                        help='Enables debug information output')
 
-args = parser.parse_args()
+    args = parser.parse_args()
 
-if args.webcam:
-    if args.debug:
-        solve_webcam(debug=True)
+    if args.webcam:
+        if args.debug:
+            solve_webcam(debug=True)
+        else:
+            print('Using webcam input. Press "q" to exit.')
+            solve_webcam()
     else:
-        print('Using webcam input. Press "q" to exit.')
-        solve_webcam()
-else:
-    solved = solve_image(args.file)
-    if solved is None:
-        raise SystemExit
-    if args.save:
-        file_name = args.file[:-4]
-        file_ext = args.file[-3:]
-        cv2.imwrite(f'{file_name}_solved.{file_ext}', solved)
-        print(f'Saved: {file_name}_solved.{file_ext}')
-    else:
-        print('Solving...')
-        show(solved)
+        solved = solve_image(args.file)
+        if solved is None:
+            raise SystemExit
+        if args.save:
+            file_name = args.file[:-4]
+            file_ext = args.file[-3:]
+            cv2.imwrite(f'{file_name}_solved.{file_ext}', solved)
+            print(f'Saved: {file_name}_solved.{file_ext}')
+        else:
+            print('Solving...')
+            show(solved)
