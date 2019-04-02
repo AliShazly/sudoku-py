@@ -89,7 +89,7 @@ def transform(pts, img):  # TODO: Spline transform, remove this
     return warped
 
 
-def get_grid_lines(img, length = 12):
+def get_grid_lines(img, length=12):
     horizontal = np.copy(img)
     cols = horizontal.shape[1]
     horizontal_size = cols // length
@@ -107,15 +107,16 @@ def get_grid_lines(img, length = 12):
     return vertical, horizontal
 
 
-def spline_transform(img, vertical, horizontal): 
-    # TODO: Try cropping the image to the corners, 
-    # but erode the area a little bit, making it include the outer parts of the puzzle
+def spline_transform(img, vertical, horizontal):
+    # TODO: Try cropping the image to the corners,
+    #  but erode the area a little bit, making it include the outer parts of the puzzle
     img_points = cv2.bitwise_and(vertical, horizontal)
-    kernel = np.ones((2,2), np.uint8)
+    kernel = np.ones((2, 2), np.uint8)
     denoise = cv2.morphologyEx(img_points, cv2.MORPH_OPEN, kernel)
+    show(denoise)
 
 
-def extract_lines(img, vertical, horizontal):
+def create_grid_mask(vertical, horizontal):
     grid = cv2.add(horizontal, vertical)
     grid = cv2.adaptiveThreshold(grid, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 235, 2)
     grid = cv2.dilate(grid, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)), iterations=2)
@@ -284,12 +285,12 @@ def solve_image(fp):
     corners = get_corners(processed)
     warped = transform(corners, processed)
     vertical_lines, horizontal_lines = get_grid_lines(warped)
-    mask = extract_lines(warped, vertical_lines, horizontal_lines)
+    mask = create_grid_mask(vertical_lines, horizontal_lines)
     numbers = cv2.bitwise_and(warped, mask)
     digits_sorted = extract_digits(numbers)
     digits_border = add_border(digits_sorted)
     digits_subd = subdivide(numbers)
-    
+
     try:
         digits_with_zeros = add_zeros(digits_border, digits_subd)
     except IndexError:
@@ -305,7 +306,6 @@ def solve_image(fp):
     solved = solve(puzzle.copy().tolist())  # Solve function modifies original puzzle var
     if not solved:
         raise ValueError('ERROR: Puzzle not solvable')
-        sys.exit()
 
     warped_img = transform(corners, img)
     subd = subdivide(warped_img)
@@ -330,7 +330,7 @@ def solve_webcam(debug=False):
             corners = get_corners(processed)
             warped = transform(corners, processed)
             vertical_lines, horizontal_lines = get_grid_lines(warped)
-            mask = extract_lines(warped, vertical_lines, horizontal_lines)
+            mask = create_grid_mask(vertical_lines, horizontal_lines)
 
             # Checks to see if the mask matches a grid-like structure
             template = cv2.resize(grid, (warped.shape[0],) * 2, interpolation=cv2.INTER_NEAREST)
@@ -352,11 +352,11 @@ def solve_webcam(debug=False):
                 continue
 
             numbers = cv2.bitwise_and(warped, mask)
-            digits_unsorted = extract_digits(numbers)
-            digits_subd = subdivide(numbers)
-            digits_sorted = sort_digits(digits_subd, digits_unsorted, img_dims)
+            digits_sorted = extract_digits(numbers)
             digits_border = add_border(digits_sorted)
-            puzzle = img_to_array(digits_border, img_dims)
+            digits_subd = subdivide(numbers)
+            digits_with_zeros = add_zeros(digits_border, digits_subd)
+            puzzle = img_to_array(digits_with_zeros, img_dims)
 
             if np.sum(puzzle) == 0:
                 raise ValueError('False positive')
