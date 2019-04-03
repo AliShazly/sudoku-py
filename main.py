@@ -113,7 +113,6 @@ def spline_transform(img, vertical, horizontal):
     img_points = cv2.bitwise_and(vertical, horizontal)
     kernel = np.ones((2, 2), np.uint8)
     denoise = cv2.morphologyEx(img_points, cv2.MORPH_OPEN, kernel)
-    show(denoise)
 
 
 def create_grid_mask(vertical, horizontal):
@@ -156,8 +155,8 @@ def extract_digits(img):
         cropped = img[y:y + h, x:x + w]
         if y - y_compare > img.shape[1] // 40:
             row = [i[0] for i in sorted(row, key=lambda x: x[1])]
-            for i in row:
-                digits.append(i)
+            for j in row:
+                digits.append(j)
             row = []
         row.append((cropped, x))
         y_compare = y
@@ -228,7 +227,7 @@ def img_to_array(img_arr, img_dims):
     return puzzle
 
 
-def put_solution(img_arr, soln_arr, unsolved_arr):
+def put_solution(img_arr, soln_arr, unsolved_arr, font_color, font_path):
     solutions = np.array(soln_arr).reshape(81)
     unsolveds = np.array(unsolved_arr).reshape(81)
     paired = list((zip(solutions, unsolveds, img_arr)))
@@ -241,10 +240,10 @@ def put_solution(img_arr, soln_arr, unsolved_arr):
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(img_rgb)
         draw = ImageDraw.Draw(pil_img)
-        fnt = ImageFont.truetype('assets/FreeMono.ttf', img_h)
+        fnt = ImageFont.truetype(font_path, img_h)
         font_w, font_h = draw.textsize(str(solution), font=fnt)
         draw.text(((img_w - font_w) / 2, (img_h - font_h) / 2 - img_h // 10), str(solution),
-                  fill=((0, 127, 255) if len(img.shape) > 2 else 0), font=fnt)
+                  fill=(font_color if len(img.shape) > 2 else 0), font=fnt)
         cv2_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         img_solved.append(cv2_img)
     return img_solved
@@ -274,7 +273,12 @@ def inverse_perspective(img, dst_img, pts):
     return dst_img
 
 
-def solve_image(fp):
+def solve_image(fp, font_color, font_path):
+    if font_color is None:
+        font_color = (0, 127, 255)
+    if font_path is None:
+        font_path = 'assets/FreeMono.ttf'
+
     try:
         img = resize_keep_aspect(cv2.imread(fp, cv2.IMREAD_COLOR))
     except AttributeError:
@@ -309,13 +313,18 @@ def solve_image(fp):
 
     warped_img = transform(corners, img)
     subd = subdivide(warped_img)
-    subd_soln = put_solution(subd, solved, puzzle)
+    subd_soln = put_solution(subd, solved, puzzle, font_color, font_path)
     warped_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
     warped_inverse = inverse_perspective(warped_soln, img.copy(), np.array(corners))
     return warped_inverse
 
 
-def solve_webcam(debug=False):
+def solve_webcam(font_color, font_path, debug=False):
+    if font_color is None:
+        font_color = (0, 127, 255)
+    if font_path is None:
+        font_path = 'assets/FreeMono.ttf'
+
     cap = cv2.VideoCapture(0)
     stored_soln = []
     stored_puzzle = []
@@ -343,7 +352,7 @@ def solve_webcam(debug=False):
             if stored_soln and stored_puzzle:
                 warped_img = transform(corners, img)
                 subd = subdivide(warped_img)
-                subd_soln = put_solution(subd, stored_soln, stored_puzzle)
+                subd_soln = put_solution(subd, stored_soln, stored_puzzle, font_color, font_path)
                 warped_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
                 warped_inverse = inverse_perspective(warped_soln, img, np.array(corners))
                 cv2.imshow('frame', warped_inverse)
@@ -375,7 +384,7 @@ def solve_webcam(debug=False):
 
             warped_img = transform(corners, img)
             subd = subdivide(warped_img)
-            subd_soln = put_solution(subd, solved, puzzle)
+            subd_soln = put_solution(subd, solved, puzzle, font_color, font_path)
             warped_soln = stitch_img(subd_soln, (warped_img.shape[0], warped_img.shape[1]))
             warped_inverse = inverse_perspective(warped_soln, img, np.array(corners))
             cv2.imshow('frame', warped_inverse)
@@ -397,25 +406,30 @@ if __name__ == '__main__':
 
     inputs.add_argument('-f', '--file', type=str,
                         help='File path to an image of a sudoku puzzle')
-    parser.add_argument('-s', '--save', action='store_true',
-                        help='Save image to specified file\'s current directory')
+    parser.add_argument('-s', '--save', type=str,
+                        help='Save image to specified directory')
     inputs.add_argument('-w', '--webcam', action='store_true',
                         help='Use webcam to solve sudoku puzzle in real time (EXPERIMENTAL)')
     parser.add_argument('-d', '--debug', action='store_true',
                         help='Enables debug information output')
+    parser.add_argument('-fnt', '--font', type=str,
+                        help='Relative path to a .ttf file for font')
+    parser.add_argument('-c', '--color', type=str,
+                        help='Changes font color, accepts R,G,B input')
 
     args = parser.parse_args()
 
+    font_color = tuple([int(i) for i in args.color.split(',')]) if args.color else None
+    font_path = args.font if args.font else None
+
     if args.webcam:
         if args.debug:
-            solve_webcam(debug=True)
+            solve_webcam(font_color, font_path, debug=True)
         else:
             print('Using webcam input. Press "q" to exit.')
-            solve_webcam()
+            solve_webcam(font_color, font_path)
     else:
-        solved = solve_image(args.file)
-        if solved is None:
-            raise SystemExit
+        solved = solve_image(args.file, font_color, font_path)
         if args.save:
             file_name = args.file[:-4]
             file_ext = args.file[-3:]
