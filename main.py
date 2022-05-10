@@ -6,21 +6,9 @@ import keras
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from keras.models import load_model
+import tensorflow as tf
 
 from solve_puzzle import solve, check_if_solvable, verify
-
-try:
-    print('Loading model...')
-    model = load_model('ocr/model_02.hdf5')
-    img_dims = 64
-except OSError:
-    print('Main model not found, loading secondary model...')
-    model = load_model('ocr/model.hdf5')
-    img_dims = 32
-
-model.compile(loss=keras.losses.categorical_crossentropy,
-              optimizer=keras.optimizers.Adadelta(),
-              metrics=['accuracy'])
 
 
 def show(*args):
@@ -210,7 +198,7 @@ def add_zeros(sorted_arr, subd_arr):
     return puzzle_template
 
 
-def img_to_array(img_arr, img_dims):
+def img_to_array(img_arr, img_dims, model):
     predictions = []
     for i in img_arr:
         resized = cv2.resize(i, (img_dims, img_dims), interpolation=cv2.INTER_LANCZOS4)
@@ -221,7 +209,7 @@ def img_to_array(img_arr, img_dims):
         reshaped = array.reshape(array.shape[0], img_dims, img_dims, 1)
         flt = reshaped.astype('float32')
         flt /= 255
-        prediction = model.predict_classes(flt)
+        prediction = np.argmax(model.predict(flt), axis=-1)
         predictions.append(prediction[0] + 1)  # OCR predicts from 0-8, changing it to 1-9
     puzzle = np.array(predictions).reshape((9, 9))
     return puzzle
@@ -273,7 +261,7 @@ def inverse_perspective(img, dst_img, pts):
     return dst_img
 
 
-def solve_image(fp, font_color, font_path):
+def solve_image(fp, font_color, font_path, img_dims, model):
     if font_color is None:
         font_color = (0, 127, 255)
     if font_path is None:
@@ -302,7 +290,7 @@ def solve_image(fp, font_color, font_path):
         sys.exit()
 
     try:
-        puzzle = img_to_array(digits_with_zeros, img_dims)
+        puzzle = img_to_array(digits_with_zeros, img_dims, model)
     except AttributeError:
         sys.stderr.write('ERROR: OCR predictions failed')
         sys.exit()
@@ -319,7 +307,7 @@ def solve_image(fp, font_color, font_path):
     return warped_inverse
 
 
-def solve_webcam(font_color, font_path, debug=False):
+def solve_webcam(font_color, font_path, img_dims, model, debug=False):
     if font_color is None:
         font_color = (0, 127, 255)
     if font_path is None:
@@ -365,7 +353,7 @@ def solve_webcam(font_color, font_path, debug=False):
             digits_border = add_border(digits_sorted)
             digits_subd = subdivide(numbers)
             digits_with_zeros = add_zeros(digits_border, digits_subd)
-            puzzle = img_to_array(digits_with_zeros, img_dims)
+            puzzle = img_to_array(digits_with_zeros, img_dims, model)
 
             if np.sum(puzzle) == 0:
                 raise ValueError('False positive')
@@ -402,7 +390,7 @@ def solve_webcam(font_color, font_path, debug=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    inputs = parser.add_mutually_exclusive_group()
+    inputs = parser.add_mutually_exclusive_group(required=True)
 
     inputs.add_argument('-f', '--file', type=str,
                         help='File path to an image of a sudoku puzzle')
@@ -412,15 +400,28 @@ if __name__ == '__main__':
                         help='Use webcam to solve sudoku puzzle in real time (EXPERIMENTAL)')
     parser.add_argument('-d', '--debug', action='store_true',
                         help='Enables debug information output')
-    parser.add_argument('-fnt', '--font', type=str,
-                        help='Relative path to a .ttf file for font')
+    parser.add_argument('-t', '--ttf', type=str,
+                        help='Relative path to a .ttf font file')
     parser.add_argument('-c', '--color', type=str,
                         help='Changes font color, accepts R,G,B input')
 
     args = parser.parse_args()
 
+    try:
+        print('Loading model...')
+        model = load_model('ocr/model_02.hdf5')
+        img_dims = 64
+    except OSError:
+        print('Main model not found, loading secondary model...')
+        model = load_model('ocr/model.hdf5')
+        img_dims = 32
+
+    model.compile(loss=keras.losses.categorical_crossentropy,
+                optimizer=tf.keras.optimizers.Adadelta(),
+                metrics=['accuracy'])
+
     font_color = tuple([int(i) for i in args.color.split(',')]) if args.color else None
-    font_path = args.font if args.font else None
+    font_path = args.ttf if args.ttf else None
 
     if args.webcam:
         if args.debug:
@@ -429,12 +430,10 @@ if __name__ == '__main__':
             print('Using webcam input. Press "q" to exit.')
             solve_webcam(font_color, font_path)
     else:
-        solved = solve_image(args.file, font_color, font_path)
+        solved = solve_image(args.file, font_color, font_path, img_dims, model)
         if args.save:
-            file_name = args.file[:-4]
-            file_ext = args.file[-3:]
-            cv2.imwrite(f'{file_name}_solved.{file_ext}', solved)
-            print(f'Saved: {file_name}_solved.{file_ext}')
+            cv2.imwrite(args.save, solved)
+            print(f"Saved image to {args.save}")
         else:
             print('Solving...')
             show(solved)
